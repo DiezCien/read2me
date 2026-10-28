@@ -1,0 +1,3 @@
+# Tipos MIME que el navegador exige para el motor de voz (WebAssembly).
+AddType application/wasm .wasm
+AddType text/javascript .js .mjs

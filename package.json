@@ -1,0 +1,9 @@
+{
+  "name": "read2me",
+  "private": true,
+  "type": "module",
+  "description": "Lee tus EPUB en voz alta. PWA sin servidor: todo se guarda en el teléfono.",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
