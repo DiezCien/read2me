@@ -680,6 +680,14 @@ async function renderSettings() {
           <span class="note">La copia guarda tu progreso y marcadores en un archivo, para pasarlos a otro móvil. Los libros hay que volver a añadirlos.</span>
         </div>
       </div>
+      <div class="group">
+        <h2 class="eyebrow">Acerca de</h2>
+        <p class="note">Read2Me es software libre (GNU GPL v3.0). Incluye onnxruntime, Piper y espeak-ng; la voz Sharvard es CC BY 3.0 (Universidad de Edimburgo).</p>
+        <div class="two">
+          <a class="btn" href="https://github.com/DiezCien/read2me" target="_blank" rel="noopener">Código fuente</a>
+          <a class="btn" href="THIRD-PARTY-NOTICES.md" target="_blank" rel="noopener">Créditos y licencias</a>
+        </div>
+      </div>
     </div>`;
 
   root.querySelectorAll('[data-timer]').forEach((el) => el.addEventListener('click', () => {
