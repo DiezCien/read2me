@@ -21,7 +21,7 @@ a { color: inherit; text-decoration: none; }
 svg { display: block; }
 [hidden] { display: none !important; }
 
-#app { max-width: 480px; margin: 0 auto; height: 100%; position: relative; }
+#app { max-width: 480px; margin: 0 auto; height: 100%; height: 100dvh; position: relative; }
 .view { height: 100%; display: flex; flex-direction: column; padding: 16px 20px max(24px, env(safe-area-inset-bottom)); overflow-y: auto; }
 
 .top { display: flex; align-items: center; gap: 8px; min-height: 48px; flex: none; }
@@ -59,15 +59,18 @@ svg { display: block; }
 .book .cover { height: 162px; }
 .mini-cover { flex: none; width: 72px; height: 108px; border-radius: 8px; }
 .mini-cover .t { padding: 8px; font-size: 12px; }
-.book .author { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.book .state { font-size: 12px; color: var(--muted); }
+.book .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.book .book-title { font-size: 13px; font-weight: 600; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.book .author { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.book .state { font-size: 12px; color: var(--accent); }
 .add-book { height: 162px; border: 1.5px dashed #5a554d; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .empty { margin-top: 32px; color: var(--muted); font-size: 15px; line-height: 1.5; }
 
 /* reproductor */
-.player-cover { margin: 16px auto 0; width: 230px; height: 345px; border-radius: 14px; box-shadow: 0 24px 48px rgba(0,0,0,.45); flex: none; }
-.player-cover .t { padding: 22px; font-size: 28px; line-height: 1.1; }
-.player-titles { margin-top: 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; flex: none; }
+/* la portada se encoge si la pantalla es baja, para que no haga falta scroll */
+.player-cover { margin: 8px auto 0; flex: 0 1 345px; min-height: 110px; aspect-ratio: 2 / 3; width: auto; max-width: 230px; align-self: center; border-radius: 14px; box-shadow: 0 24px 48px rgba(0,0,0,.45); }
+.player-cover .t { padding: 12px; font-size: clamp(14px, 2.6vh, 28px); line-height: 1.1; overflow-wrap: anywhere; hyphens: auto; }
+.player-titles { margin-top: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; flex: none; }
 .player-titles h1 { font-family: var(--serif); font-size: 22px; font-weight: 600; }
 .chapter-link { text-align: center; min-height: 44px; display: flex; align-items: center; gap: 6px; font-size: 15px; color: var(--accent); }
 .scrub { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; flex: none; }
@@ -79,7 +82,7 @@ svg { display: block; }
 .transport .skip { width: 56px; height: 56px; }
 .transport .skip span { position: absolute; font-size: 10px; font-weight: 700; padding-top: 3px; }
 .transport .big { width: 80px; height: 80px; border-radius: 40px; background: var(--accent); color: var(--on-accent); }
-.quick { margin-top: auto; padding-top: 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: none; }
+.quick { margin-top: auto; padding-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; flex: none; }
 .quick button, .quick a { height: 60px; border-radius: 14px; background: var(--card); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--muted); }
 .quick b { font-size: 16px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .quick .on { color: var(--accent); }

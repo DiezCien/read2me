@@ -11,7 +11,9 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const fmtRate = (r) => String(r).replace('.', ',') + '×';
 
-const SPEEDS = [0.8, 1, 1.2, 1.5, 2, 2.5, 3];
+// Narración: por encima de 1,5× la voz sintética cuesta de entender.
+const SPEEDS = [0.9, 1, 1.1, 1.25, 1.5];
+const MAX_RATE = SPEEDS[SPEEDS.length - 1];
 const TIMERS = [['off', 'Apagado'], [15, '15 min'], [30, '30 min'], [45, '45 min'], ['chapter', 'Fin del capítulo']];
 const COVER_COLORS = ['#3b4a6b', '#6b3b3b', '#3f5b4a', '#5b4a2e', '#4d3f5e', '#2f5560', '#5e3f4d'];
 
@@ -58,7 +60,7 @@ const S = {
   texts: null,
   ch: 0,
   chap: null, // { paras: [[sentence]], flat: [sentence], cum: [palabras acumuladas antes de cada frase] }
-  rate: store.get().rate || 1,
+  rate: Math.min(store.get().rate || 1, MAX_RATE),
   timer: 'off',
   timerId: null,
   playing: false,
@@ -108,15 +110,31 @@ const media = setupMediaSession({
 
 /* ---------- utilidades de libro ---------- */
 
+const normText = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/g, ' ').trim();
+
+// Antes de leer el capítulo se dice su título (el del índice del libro).
+// Si el texto ya empieza con él, no se repite; si empieza con un encabezado corto
+// («Capítulo I»), se sustituye por el título completo.
+function withAnnouncement(ch, rawParas) {
+  const title = S.book.chapters[ch].title;
+  if (store.get().announce === false || !title || /^Sección \d+$/.test(title)) return { raw: rawParas, heading: false };
+  const first = normText(rawParas[0] || '');
+  const wanted = normText(title);
+  if (first && first.startsWith(wanted)) return { raw: rawParas, heading: true };
+  if (first && wanted.startsWith(first) && rawParas[0].length < 80) return { raw: [title, ...rawParas.slice(1)], heading: true };
+  return { raw: [title, ...rawParas], heading: true };
+}
+
 function buildChapter(ch) {
-  const paras = S.texts.chapters[ch].map(splitSentences).filter((p) => p.length);
+  const { raw, heading } = withAnnouncement(ch, S.texts.chapters[ch]);
+  const paras = raw.map(splitSentences).filter((p) => p.length);
   const flat = paras.flat();
   const cum = [];
   let words = 0;
   for (const s of flat) { cum.push(words); words += countWords(s); }
   const paraEnd = [];
   for (const p of paras) p.forEach((_, k) => paraEnd.push(k === p.length - 1));
-  return { paras, flat, cum, words, paraEnd };
+  return { paras, flat, cum, words, paraEnd, heading };
 }
 
 // Tiempos del capítulo en segundos de escucha (ya divididos por la velocidad).
@@ -237,7 +255,11 @@ async function renderLibrary() {
         const label = pct >= 99 ? 'Terminado' : pct ? `${pct} %` : 'Nuevo';
         return `<button class="book" data-open="${b.id}" aria-label="${esc(b.title)}, ${esc(b.author)}, ${label}">
           ${coverHtml(b, '', pct)}
-          <span><span class="author" style="display:block">${esc(b.author)}</span><span class="state">${label}</span></span>
+          <span class="meta">
+            <span class="book-title">${esc(b.title)}</span>
+            <span class="author">${esc(b.author)}</span>
+            <span class="state">${label}</span>
+          </span>
         </button>`;
       }).join('')}
       <label class="book">
@@ -377,7 +399,6 @@ function renderPlayer() {
     <div class="quick">
       <button id="b-speed"><b></b>Velocidad</button>
       <button id="b-timer"></button>
-      <a href="#/settings">${icon('mic', 20)}Voz</a>
       <button id="b-mark">${icon('bookmark', 20)}Marcador</button>
     </div>`;
 
@@ -444,8 +465,7 @@ function setRate(rate) {
 }
 
 function cycleSpeed() {
-  const i = SPEEDS.indexOf(S.rate);
-  setRate(SPEEDS[(i + 1) % SPEEDS.length]);
+  setRate(SPEEDS.find((r) => r > S.rate + 0.001) ?? SPEEDS[0]);
 }
 
 function setTimer(value) {
@@ -477,8 +497,10 @@ function renderText() {
   const b = S.book;
   const root = $('#view-text');
   let n = 0;
-  const body = S.chap.paras.map((para) =>
-    `<p>${para.map((s) => `<span class="s" data-i="${n++}">${esc(s)} </span>`).join('')}</p>`).join('');
+  const body = S.chap.paras.map((para, pi) => {
+    const tag = pi === 0 && S.chap.heading ? 'h2' : 'p';
+    return `<${tag}>${para.map((s) => `<span class="s" data-i="${n++}">${esc(s)} </span>`).join('')}</${tag}>`;
+  }).join('');
   root.innerHTML = `
     <div class="top">
       <a class="icon-btn" href="#/player" aria-label="Volver al reproductor">${icon('back')}</a>
@@ -656,8 +678,16 @@ async function renderSettings() {
       </div>
       <div class="group">
         <div class="range-head"><h2 class="eyebrow"><label for="rate">Velocidad</label></h2><b id="rate-v">${fmtRate(S.rate)}</b></div>
-        <input id="rate" type="range" min="0.5" max="3" step="0.1" value="${S.rate}">
-        <div class="range-foot"><span>0,5×</span><span>3×</span></div>
+        <input id="rate" type="range" min="0.5" max="${MAX_RATE}" step="0.05" value="${S.rate}">
+        <div class="range-foot"><span>0,5×</span><span>${fmtRate(MAX_RATE)}</span></div>
+      </div>
+      <div class="group">
+        <h2 class="eyebrow">Anunciar el capítulo</h2>
+        <div class="chips">
+          <button class="chip" data-announce="on" aria-pressed="${store.get().announce !== false}">Sí</button>
+          <button class="chip" data-announce="off" aria-pressed="${store.get().announce === false}">No</button>
+        </div>
+        <p class="note">Antes de empezar cada capítulo se dice su número y su nombre.</p>
       </div>
       <div class="group">
         <h2 class="eyebrow">Tipo de voz</h2>
@@ -696,10 +726,15 @@ async function renderSettings() {
     renderSettings();
   }));
   $('#rate', root).addEventListener('input', (e) => {
-    const r = Math.round(Number(e.target.value) * 10) / 10;
+    const r = Math.round(Number(e.target.value) * 20) / 20;
     $('#rate-v', root).textContent = fmtRate(r);
     setRate(r);
   });
+  root.querySelectorAll('[data-announce]').forEach((el) => el.addEventListener('click', async () => {
+    store.set({ announce: el.dataset.announce === 'on' });
+    if (S.book) { reader.stopSpeaking(); await loadChapter(S.ch, 0); }
+    renderSettings();
+  }));
   root.querySelectorAll('[data-engine]').forEach((el) => el.addEventListener('click', () => {
     S.engineKind = el.dataset.engine;
     store.set({ engine: S.engineKind });

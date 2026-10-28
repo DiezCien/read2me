@@ -2,6 +2,14 @@
 
 import { WORDS_PER_MINUTE, countWords } from './text.js';
 
+// Huella corta de un texto (djb2). Va en la clave de la caché de audio para que un cambio de texto
+// (por ejemplo, anunciar el capítulo) no reutilice audio de otra frase.
+export function hashText(text) {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 export const SEGMENT_SECONDS = 12; // duración aproximada de cada trozo de audio
 
 // Agrupa frases consecutivas en trozos de ~SEGMENT_SECONDS (a 1×, estimado por palabras).

@@ -4,7 +4,7 @@
 // lo trata como un podcast: sigue sonando con la pantalla bloqueada y responde a los auriculares.
 
 import * as db from './db.js';
-import { planSegments, buildSegmentWav, pauseAfter } from './audio.js';
+import { planSegments, buildSegmentWav, pauseAfter, hashText } from './audio.js';
 
 const LOOKAHEAD_SEGMENTS = 30; // ≈ 6 min de audio preparado por delante
 const CACHE_CAP_BYTES = 600 * 1048576;
@@ -66,7 +66,9 @@ export class NeuralReader {
     try {
       const list = await db.listAudio(this.bookId);
       if (gen !== this.loadGen) return;
-      for (const a of list) if (a.ch === this.ch && a.voiceId === this.voice.id) this.durations.set(a.seg, a.duration);
+      for (const a of list) {
+        if (a.ch === this.ch && a.voiceId === this.voice.id && this.segs[a.seg] && a.key === this.#key(a.seg)) this.durations.set(a.seg, a.duration);
+      }
     } catch { /* sin datos: se usan estimaciones */ }
   }
 
@@ -233,7 +235,8 @@ export class NeuralReader {
   /* ---------- síntesis y caché ---------- */
 
   #key(seg) {
-    return `${this.bookId}|${this.voice.id}|${this.ch}|${seg}`;
+    const { start, end } = this.segs[seg];
+    return `${this.bookId}|${this.voice.id}|${this.ch}|${seg}|${hashText(this.sentences.slice(start, end).join('\n'))}`;
   }
 
   #ensure(seg, prefetch) {

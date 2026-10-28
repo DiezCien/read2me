@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planSegments, pauseAfter, buildSegmentWav } from '../js/audio.js';
+import { planSegments, pauseAfter, buildSegmentWav, hashText } from '../js/audio.js';
 
 const sentence = (words) => Array.from({ length: words }, () => 'palabra').join(' ') + '.';
 
@@ -50,4 +50,10 @@ test('el WAV tiene cabecera válida, silencios y desplazamientos correctos', () 
   assert.equal(samples[0], 1000);
   assert.equal(samples[550], 0); // dentro del silencio tras la primera frase
   assert.equal(samples[600], -1000);
+});
+
+test('la huella cambia con el texto y es estable', () => {
+  assert.equal(hashText('Capítulo I'), hashText('Capítulo I'));
+  assert.notEqual(hashText('Capítulo I'), hashText('Capítulo II'));
+  assert.notEqual(hashText('a\nb'), hashText('ab'));
 });
