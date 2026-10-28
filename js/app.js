@@ -225,7 +225,7 @@ async function renderLibrary() {
     const pct = bookPercent(lastBook);
     const wordsDone = (lastBook.chapters[last.chapter]?.words || 0) * (last.fraction || 0);
     return `
-    <button class="continue" data-open="${lastBook.id}" data-play="1" aria-label="Seguir escuchando ${esc(lastBook.title)}">
+    <button class="continue" data-open="${lastBook.id}" aria-label="Seguir escuchando ${esc(lastBook.title)}">
       <span class="row">
         ${coverHtml(lastBook, 'mini-cover')}
         <span class="info">
@@ -242,7 +242,7 @@ async function renderLibrary() {
 
   root.innerHTML = `
     <div class="top">
-      <h1 id="t-library" class="view-library-title grow">Biblioteca</h1>
+      <h1 id="t-library" class="grow logo-title"><img class="logo" src="icons/logo-horiz-light.png" alt="Read2Me"><span class="sr-only">Biblioteca</span></h1>
       <a class="icon-btn filled" href="#/settings" aria-label="Ajustes">${icon('gear', 22)}</a>
     </div>
     <p class="local-pill">${icon('phone', 16)} Tus libros y tu progreso están solo en este teléfono</p>
@@ -270,7 +270,7 @@ async function renderLibrary() {
     </div>`;
 
   root.querySelectorAll('[data-open]').forEach((el) =>
-    el.addEventListener('click', () => openBook(el.dataset.open, { play: el.dataset.play === '1' })));
+    el.addEventListener('click', () => openBook(el.dataset.open)));
   $('#file', root).addEventListener('change', onFiles);
 }
 

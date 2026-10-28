@@ -35,6 +35,9 @@ svg { display: block; }
 .eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 
 /* biblioteca */
+.logo-title { margin: 0; display: flex; }
+.logo { height: 44px; width: auto; display: block; margin-left: -4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .view-library-title { font-family: var(--serif); font-size: 30px; font-weight: 600; letter-spacing: -.01em; }
 .local-pill { margin-top: 16px; align-self: flex-start; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 12px; border-radius: 16px; background: var(--card); color: var(--muted); font-size: 13px; }
 .continue { margin-top: 20px; display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: 20px; background: var(--card); width: 100%; text-align: left; }
