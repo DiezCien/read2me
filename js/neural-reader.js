@@ -42,6 +42,8 @@ export class NeuralReader {
     this.recs = new Map(); // seg → { start, end, offsets, duration, url, seg }
     this.pending = new Map(); // seg → { promise, job, prefetch }
     this.durations = new Map(); // seg → duración real conocida
+    this.inflight = new Map(); // clave de caché → generación en curso
+    this.prefetchGen = 0;
     this.playGen = 0;
     this.loadGen = 0;
     this.raf = 0;
@@ -308,8 +310,22 @@ export class NeuralReader {
   }
 
   // Devuelve el trozo guardado, o lo genera y lo guarda. `track.job` permite cancelarlo.
+  // Un mismo trozo nunca se genera dos veces a la vez: quien llega después espera al que ya lo está haciendo.
   async #record(ctx, seg, track) {
     const key = this.#key(ctx, seg);
+    for (;;) {
+      const running = this.inflight.get(key);
+      if (!running) break;
+      try { return await running; } catch (err) { if (!err.cancelled) throw err; /* lo canceló otro: se genera de nuevo */ }
+    }
+    const p = this.#generate(key, ctx, seg, track);
+    this.inflight.set(key, p);
+    const clear = () => { if (this.inflight.get(key) === p) this.inflight.delete(key); };
+    p.then(clear, clear);
+    return p;
+  }
+
+  async #generate(key, ctx, seg, track) {
     const stored = await db.getAudio(key);
     if (stored) return stored;
     const { start, end } = ctx.segs[seg];
@@ -348,15 +364,20 @@ export class NeuralReader {
     return entry.promise;
   }
 
+  // Un solo bucle de prefetch a la vez; la ventana se recalcula en cada vuelta según dónde se esté escuchando.
   async #prefetch(gen) {
-    const cur = this.segOf[this.index];
-    const limit = Math.min(this.segs.length, cur + 1 + LOOKAHEAD_SEGMENTS);
-    for (let s = cur + 1; s < limit; s++) {
-      if (!this.playing || gen !== this.playGen) return;
-      try { await this.#ensure(s, true); } catch { return; }
-      if (s === cur + 1) this.#standby(s);
+    if (this.prefetchGen === gen) return;
+    this.prefetchGen = gen;
+    try {
+      for (let s = this.segOf[this.index] + 1; s < Math.min(this.segs.length, this.segOf[this.index] + 1 + LOOKAHEAD_SEGMENTS); s++) {
+        if (!this.playing || gen !== this.playGen) return;
+        try { await this.#ensure(s, true); } catch { return; }
+        if (s === this.segOf[this.index] + 1) this.#standby(s);
+      }
+      await this.#prefetchUpcoming(gen);
+    } finally {
+      if (this.prefetchGen === gen) this.prefetchGen = 0;
     }
-    await this.#prefetchUpcoming(gen);
   }
 
   async #prefetchUpcoming(gen) {
