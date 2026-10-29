@@ -2,7 +2,7 @@ import { readEpub } from './epub.js';
 import * as db from './db.js';
 import { splitSentences, countWords, estimateSeconds, formatClock, formatLong, applyPronunciations } from './text.js';
 import { SystemVoiceEngine, Reader, setupMediaSession } from './tts.js';
-import { NeuralReader } from './neural-reader.js';
+import { NeuralReader, PREPARE_CHAPTERS } from './neural-reader.js';
 import { log, getLog, clearLog } from './diag.js';
 import { PiperSynth } from './neural-synth.js';
 import { buildSegmentWav } from './audio.js';
@@ -406,6 +406,7 @@ function renderPlayer() {
       <button id="b-speed"><b></b>Velocidad</button>
       <button id="b-timer"></button>
       <button id="b-mark">${icon('bookmark', 20)}Marcador</button>
+      <button id="b-prep"></button>
     </div>`;
 
   $('#scrub', root).addEventListener('input', (e) => { reader.seek(Number(e.target.value)); });
@@ -417,6 +418,7 @@ function renderPlayer() {
   $('#b-speed', root).addEventListener('click', cycleSpeed);
   $('#b-timer', root).addEventListener('click', cycleTimer);
   $('#b-mark', root).addEventListener('click', addBookmark);
+  $('#b-prep', root).addEventListener('click', togglePrepare);
   renderPlayState();
   renderScrub();
   renderQuick();
@@ -454,11 +456,54 @@ function renderScrub() {
 function renderQuick() {
   const speed = $('#b-speed b');
   if (speed) speed.textContent = fmtRate(S.rate);
+  renderPrep();
   const t = $('#b-timer');
   if (t) {
     const label = S.timer === 'off' ? 'Dormir' : S.timer === 'chapter' ? 'Fin cap.' : `${S.timer} min`;
     t.className = S.timer === 'off' ? '' : 'on';
     t.innerHTML = `${icon('moon', 20)}${label}`;
+  }
+}
+
+// «Preparar»: genera de antemano este capítulo y los siguientes para poder escuchar con la pantalla apagada.
+// Mientras tanto la pantalla se mantiene encendida (Android frena el motor de voz si se apaga).
+let prepState = null; // { done, total }
+let wakeLock = null;
+
+function renderPrep() {
+  const b = $('#b-prep');
+  if (!b) return;
+  const neural = !!reader.prepareChapters;
+  b.hidden = !neural;
+  b.className = prepState ? 'on' : '';
+  b.innerHTML = prepState
+    ? `<b>${Math.round((prepState.done / Math.max(1, prepState.total)) * 100)}%</b>Parar`
+    : `<b>${PREPARE_CHAPTERS} cap.</b>Preparar`;
+}
+
+async function togglePrepare() {
+  if (!reader.prepareChapters) return;
+  if (prepState) { reader.cancelPrepare(); return; }
+  const chapters = [];
+  for (let ch = S.ch; ch < Math.min(S.book.chapters.length, S.ch + PREPARE_CHAPTERS); ch++) {
+    const c = buildChapter(ch);
+    chapters.push({ ch, sentences: c.flat, paraEnd: c.paraEnd });
+  }
+  prepState = { done: 0, total: 1 };
+  renderPrep();
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
+  toast('Preparando audio: deja la pantalla encendida (mejor con el móvil cargando)');
+  const r = reader;
+  try {
+    const finished = await r.prepareChapters(chapters, (done, total) => { prepState = { done, total }; renderPrep(); });
+    if (finished) toast('Audio listo: ya puedes escuchar con la pantalla apagada');
+  } catch (err) {
+    toast(`No se pudo preparar el audio: ${err.message}`);
+  } finally {
+    prepState = null;
+    try { await wakeLock?.release(); } catch { /* ya liberado */ }
+    wakeLock = null;
+    renderPrep();
   }
 }
 

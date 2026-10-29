@@ -11,6 +11,7 @@ import { log } from './diag.js';
 const LOOKAHEAD_SEGMENTS = 90; // ≈ 18 min de audio preparado por delante
 const UPCOMING_SEGMENTS = 4; // primeros trozos del capítulo siguiente, para no esperar al cambiar
 const CACHE_CAP_BYTES = 600 * 1048576;
+export const PREPARE_CHAPTERS = 3; // capítulos que prepara el botón «Preparar»
 const KEEP_RECORDS = 3; // trozos con su URL de audio en memoria
 
 export class NeuralReader {
@@ -75,7 +76,7 @@ export class NeuralReader {
     this.upcoming = null;
     this.onSentence?.(this.index);
     this.#loadKnownDurations();
-    db.trimAudio(CACHE_CAP_BYTES, (e) => e.bookId === this.bookId && Math.abs(e.ch - this.ch) <= 1).catch(() => {});
+    db.trimAudio(CACHE_CAP_BYTES, (e) => e.bookId === this.bookId && e.ch >= this.ch - 1 && e.ch <= this.ch + PREPARE_CHAPTERS).catch(() => {});
   }
 
   // La app indica cuál es el capítulo siguiente para ir preparando sus primeros trozos.
@@ -167,6 +168,42 @@ export class NeuralReader {
     else if (segs[cur]) elapsed += segs[cur].estimate * ((this.index - segs[cur].start) / Math.max(1, segs[cur].end - segs[cur].start));
     return { elapsed, total, exact: segs.every((_, i) => this.durations.has(i)) };
   }
+
+  // Genera por adelantado capítulos enteros. Con la pantalla encendida el motor va a su ritmo; apagada,
+  // Android lo frena, así que lo ya guardado es lo que permite escuchar sin cortes con el móvil bloqueado.
+  async prepareChapters(chapters, onProgress) {
+    this.cancelPrepare();
+    const token = (this.prep = { stopped: false, track: null });
+    const ctxs = chapters.map((c) => this.#makeCtx(c.ch, c.sentences, c.paraEnd || []));
+    const total = ctxs.reduce((n, c) => n + c.segs.length, 0);
+    let done = 0;
+    log(`preparando ${ctxs.length} capítulos (${total} trozos)`);
+    try {
+      for (const ctx of ctxs) {
+        for (let s = 0; s < ctx.segs.length; s++) {
+          if (token.stopped) return false;
+          token.track = {};
+          await this.#record(ctx, s, token.track);
+          onProgress?.(++done, total);
+        }
+      }
+    } catch (err) {
+      if (token.stopped || err.cancelled) return false;
+      throw err;
+    } finally {
+      if (this.prep === token) this.prep = null;
+    }
+    log('preparación terminada');
+    return true;
+  }
+
+  cancelPrepare() {
+    if (!this.prep) return;
+    this.prep.stopped = true;
+    this.prep.track?.job?.cancel();
+  }
+
+  get preparing() { return !!this.prep; }
 
   // Cuántos trozos del capítulo están ya preparados (para mostrar "Listo").
   preparedCount() { return this.durations.size; }

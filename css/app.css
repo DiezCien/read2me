@@ -85,10 +85,12 @@ svg { display: block; }
 .transport .skip { width: 56px; height: 56px; }
 .transport .skip span { position: absolute; font-size: 10px; font-weight: 700; padding-top: 3px; }
 .transport .big { width: 80px; height: 80px; border-radius: 40px; background: var(--accent); color: var(--on-accent); }
-.quick { margin-top: auto; padding-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; flex: none; }
+.quick { margin-top: auto; padding-top: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: none; }
 .quick button, .quick a { height: 60px; border-radius: 14px; background: var(--card); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--muted); }
 .quick b { font-size: 16px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .quick .on { color: var(--accent); }
+.quick .on b { color: var(--accent); }
+.quick [hidden] { display: none; }
 
 /* texto */
 #view-text { padding: 0; overflow: hidden; }
