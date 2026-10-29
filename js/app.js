@@ -407,6 +407,7 @@ function renderPlayer() {
       <button id="b-timer"></button>
       <button id="b-mark">${icon('bookmark', 20)}Marcador</button>
       <button id="b-prep"></button>
+      <button id="b-black"><b>●</b>Negro</button>
     </div>`;
 
   $('#scrub', root).addEventListener('input', (e) => { reader.seek(Number(e.target.value)); });
@@ -419,6 +420,7 @@ function renderPlayer() {
   $('#b-timer', root).addEventListener('click', cycleTimer);
   $('#b-mark', root).addEventListener('click', addBookmark);
   $('#b-prep', root).addEventListener('click', togglePrepare);
+  $('#b-black', root).addEventListener('click', startBlackout);
   renderPlayState();
   renderScrub();
   renderQuick();
@@ -463,6 +465,41 @@ function renderQuick() {
     t.className = S.timer === 'off' ? '' : 'on';
     t.innerHTML = `${icon('moon', 20)}${label}`;
   }
+}
+
+// Pantalla negra: mantiene la pantalla «encendida» (Android no congela la página) pero toda en negro,
+// que en OLED casi no gasta. Se sale manteniendo pulsado un segundo, para que no se quite sola en el bolsillo.
+let blackout = null;
+
+async function startBlackout() {
+  if (blackout) return;
+  const el = document.createElement('div');
+  el.className = 'blackout';
+  el.innerHTML = '<p>Mantén pulsado para salir</p>';
+  let timer = 0;
+  const stop = () => clearTimeout(timer);
+  el.addEventListener('pointerdown', () => { stop(); timer = setTimeout(endBlackout, 900); });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, stop);
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.body.append(el);
+  setTimeout(() => el.classList.add('quiet'), 3000);
+  blackout = { el, lock: null };
+  await holdScreen();
+  log('pantalla negra');
+}
+
+async function holdScreen() {
+  if (!blackout) return;
+  try { blackout.lock = await navigator.wakeLock?.request('screen'); } catch { blackout.lock = null; }
+}
+
+async function endBlackout() {
+  if (!blackout) return;
+  const { el, lock } = blackout;
+  blackout = null;
+  el.remove();
+  try { await lock?.release(); } catch { /* ya liberado */ }
+  log('pantalla negra: fin');
 }
 
 // «Preparar»: genera de antemano este capítulo y los siguientes para poder escuchar con la pantalla apagada.
@@ -938,7 +975,7 @@ async function init() {
   if (!engine.voice) engine.voice = engine.pickDefault('es');
   reader.rate = S.rate;
   window.addEventListener('hashchange', route);
-  document.addEventListener('visibilitychange', () => { log(document.hidden ? 'pantalla apagada u oculta' : 'pantalla encendida'); if (document.hidden && S.book) db.saveProgress(S.book.id, S.ch, reader.index, { fraction: S.chap.cum[reader.index] / (S.chap.words || 1) }); });
+  document.addEventListener('visibilitychange', () => { log(document.hidden ? 'pantalla apagada u oculta' : 'pantalla encendida'); if (!document.hidden) holdScreen(); if (document.hidden && S.book) db.saveProgress(S.book.id, S.ch, reader.index, { fraction: S.chap.cum[reader.index] / (S.chap.words || 1) }); });
   await route();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     const hadController = !!navigator.serviceWorker.controller;
