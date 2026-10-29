@@ -12,6 +12,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const fmtRate = (r) => String(r).replace('.', ',') + '×';
 
 // Narración: por encima de 1,5× la voz sintética cuesta de entender.
+const APP_VERSION = new URL(import.meta.url).searchParams.get('v') || 'local';
 const SPEEDS = [0.9, 1, 1.1, 1.25, 1.5];
 const MAX_RATE = SPEEDS[SPEEDS.length - 1];
 const TIMERS = [['off', 'Apagado'], [15, '15 min'], [30, '30 min'], [45, '45 min'], ['chapter', 'Fin del capítulo']];
@@ -726,7 +727,7 @@ async function renderSettings() {
       </div>
       <div class="group">
         <h2 class="eyebrow">Acerca de</h2>
-        <p class="note">Read2Me es software libre (GNU GPL v3.0). Incluye onnxruntime, Piper y espeak-ng; la voz Sharvard es CC BY 3.0 (Universidad de Edimburgo).</p>
+        <p class="note">Versión ${esc(APP_VERSION)}. Read2Me es software libre (GNU GPL v3.0). Incluye onnxruntime, Piper y espeak-ng; la voz Sharvard es CC BY 3.0 (Universidad de Edimburgo).</p>
         <div class="two">
           <a class="btn" href="https://github.com/DiezCien/read2me" target="_blank" rel="noopener">Código fuente</a>
           <a class="btn" href="THIRD-PARTY-NOTICES.md" target="_blank" rel="noopener">Créditos y licencias</a>
@@ -879,7 +880,18 @@ async function init() {
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.book) db.saveProgress(S.book.id, S.ch, reader.index, { fraction: S.chap.cum[reader.index] / (S.chap.words || 1) }); });
   await route();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then((reg) => reg.update()).catch(() => {});
+    // Al tomar el control una versión nueva, se recarga sola (salvo que estés escuchando).
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return; // primera instalación: no hay nada que actualizar
+      if (S.playing) toast('Hay una versión nueva: cierra y abre Read2Me al terminar de escuchar');
+      else location.reload();
+    });
+    // y se busca una versión nueva cada vez que vuelves a la app
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) navigator.serviceWorker.getRegistration().then((r) => r?.update()).catch(() => {});
+    });
   }
 }
 

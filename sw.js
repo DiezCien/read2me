@@ -1,16 +1,17 @@
 // Service worker: deja la app disponible sin conexión (cache del "cascarón").
 // Sube CACHE cuando cambies cualquier archivo de la lista.
-const CACHE = 'read2me-v13';
+const CACHE = 'read2me-v14';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
-  'css/app.css?v=13', 'js/app.js?v=13',
+  'css/app.css?v=14', 'js/app.js?v=14',
   'js/zip.js', 'js/epub.js', 'js/db.js', 'js/text.js', 'js/tts.js',
   'js/audio.js', 'js/voices.js', 'js/neural-synth.js', 'js/neural-reader.js', 'js/piper-worker.js',
   'icons/logo-horiz-light.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' evita que la instalación se quede con copias viejas de la caché HTTP del navegador
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -23,6 +24,16 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return; // las fuentes de Google van por red; hay fallback del sistema
+
+  // La página en sí: primero la red (así se ve siempre la última versión) y, sin conexión o si tarda
+  // más de 4 s, la copia guardada.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      Promise.race([fetch(e.request), new Promise((_, reject) => setTimeout(reject, 4000))])
+        .catch(() => caches.match('index.html').then((hit) => hit || caches.match('./'))),
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request, { ignoreSearch: false }).then((hit) => hit || fetch(e.request).then((res) => {
       const copy = res.clone();
