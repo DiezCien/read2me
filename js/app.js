@@ -707,6 +707,7 @@ async function renderSettings() {
         <form class="pron-form" id="pron-form" autocomplete="off">
           <label>Palabra<input id="pron-from" type="text" placeholder="Bryce" required></label>
           <label>Se lee como<input id="pron-to" type="text" placeholder="Brais" required></label>
+          <button class="btn" type="button" id="pron-try">Escuchar</button>
           <button class="btn" type="submit">Añadir</button>
         </form>
       </div>
@@ -742,6 +743,11 @@ async function renderSettings() {
     const r = Math.round(Number(e.target.value) * 20) / 20;
     $('#rate-v', root).textContent = fmtRate(r);
     setRate(r);
+  });
+  $('#pron-try', root).addEventListener('click', () => {
+    const to = $('#pron-to', root).value.trim();
+    if (!to) return toast('Escribe en «Se lee como» cómo debe sonar');
+    speakSample(to);
   });
   $('#pron-form', root).addEventListener('submit', (e) => {
     e.preventDefault();
@@ -811,14 +817,19 @@ async function renderSettings() {
   $('#restore', root).addEventListener('change', restoreBackup);
 }
 
-async function tryNeuralVoice() {
+// Dice un texto con la voz que esté activa (neuronal o del sistema), para probar voces y pronunciaciones.
+async function speakSample(text) {
+  reader.pause();
+  if (S.engineKind !== 'neural') {
+    await engine.ready();
+    return engine.speak(text, S.rate);
+  }
   const voice = voiceById(S.voiceId);
   if (!(await downloadedModels()).has(voice.model)) return toast('Descarga primero esta voz');
-  reader.pause();
   toast('Preparando la muestra…');
   try {
     await synth.useVoice(voice);
-    const { pcms, rate } = await synth.synth(voice, ['Hola, así suena esta voz leyendo tu libro.']).promise;
+    const { pcms, rate } = await synth.synth(voice, [text]).promise;
     const { wav } = buildSegmentWav(pcms, rate, [0.2]);
     const sample = new Audio(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })));
     sample.playbackRate = S.rate;
@@ -827,6 +838,8 @@ async function tryNeuralVoice() {
     toast(err.message);
   }
 }
+
+const tryNeuralVoice = () => speakSample('Hola, así suena esta voz leyendo tu libro.');
 
 async function downloadBackup() {
   const data = await db.exportBackup();

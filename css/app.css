@@ -151,7 +151,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .pron-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .pron-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
 .pron-form input { height: 44px; border-radius: 12px; border: 1.5px solid var(--card-2); background: var(--card); color: var(--text); padding: 0 12px; font: inherit; font-size: 15px; min-width: 0; }
-.pron-form .btn { grid-column: 1 / -1; }
+
 .voice-list { display: flex; flex-direction: column; gap: 8px; }
 .voice-row { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--card); border: 1.5px solid var(--card); }
 .voice-row.using { border-color: var(--accent); }
