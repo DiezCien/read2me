@@ -1,11 +1,11 @@
 // Service worker: deja la app disponible sin conexión (cache del "cascarón").
 // Sube CACHE cuando cambies cualquier archivo de la lista.
-const CACHE = 'read2me-v14';
+const CACHE = 'read2me-v16';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest',
-  'css/app.css?v=14', 'js/app.js?v=14',
+  'css/app.css?v=16', 'js/app.js?v=16',
   'js/zip.js', 'js/epub.js', 'js/db.js', 'js/text.js', 'js/tts.js',
-  'js/audio.js', 'js/voices.js', 'js/neural-synth.js', 'js/neural-reader.js', 'js/piper-worker.js',
+  'js/audio.js', 'js/diag.js', 'js/voices.js', 'js/neural-synth.js', 'js/neural-reader.js', 'js/piper-worker.js',
   'icons/logo-horiz-light.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 

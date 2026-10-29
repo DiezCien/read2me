@@ -78,6 +78,11 @@ export class PiperSynth {
     };
   }
 
+  // Tira el worker y lo vuelve a crear (con la voz cargada de nuevo) en la siguiente petición.
+  reset() {
+    this.#fail(new Error('motor reiniciado'));
+  }
+
   dispose() {
     this.#fail(new Error('motor cerrado'));
   }

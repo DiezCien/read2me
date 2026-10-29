@@ -3,6 +3,7 @@ import * as db from './db.js';
 import { splitSentences, countWords, estimateSeconds, formatClock, formatLong, applyPronunciations } from './text.js';
 import { SystemVoiceEngine, Reader, setupMediaSession } from './tts.js';
 import { NeuralReader } from './neural-reader.js';
+import { log, getLog, clearLog } from './diag.js';
 import { PiperSynth } from './neural-synth.js';
 import { buildSegmentWav } from './audio.js';
 import { VOICES, DEFAULT_VOICE, voiceById, formatMB, downloadedModels, downloadVoice, deleteVoiceModel } from './voices.js';
@@ -311,6 +312,9 @@ async function loadChapter(ch, sentence = 0) {
   S.ch = Math.min(Math.max(0, ch), S.book.chapters.length - 1);
   S.chap = buildChapter(S.ch);
   reader.load(S.chap.flat, sentence, chapterMeta());
+  // el capítulo siguiente se va preparando por adelantado para que el cambio no corte el audio
+  const upcoming = S.ch + 1 < S.book.chapters.length ? buildChapter(S.ch + 1) : null;
+  reader.setUpcoming?.(upcoming && { ch: S.ch + 1, sentences: upcoming.flat, paraEnd: upcoming.paraEnd });
   media.update({
     title: S.book.chapters[S.ch].title,
     artist: S.book.author,
@@ -726,6 +730,14 @@ async function renderSettings() {
         </div>
       </div>
       <div class="group">
+        <h2 class="eyebrow">Diagnóstico</h2>
+        <p class="note">Si el audio se corta o sale un error, copia el registro y envíamelo: dice cuánto tarda en prepararse cada trozo y si la pantalla estaba apagada.</p>
+        <div class="two">
+          <button class="btn" id="log-copy">Copiar registro</button>
+          <button class="btn" id="log-clear">Borrar registro</button>
+        </div>
+      </div>
+      <div class="group">
         <h2 class="eyebrow">Acerca de</h2>
         <p class="note">Versión ${esc(APP_VERSION)}. Read2Me es software libre (GNU GPL v3.0). Incluye onnxruntime, Piper y espeak-ng; la voz Sharvard es CC BY 3.0 (Universidad de Edimburgo).</p>
         <div class="two">
@@ -765,6 +777,10 @@ async function renderSettings() {
     applyEngine();
     renderSettings();
   }));
+  $('#log-copy', root).addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(`Read2Me v${APP_VERSION}\n${getLog()}`); toast('Registro copiado'); } catch { toast('No se pudo copiar el registro'); }
+  });
+  $('#log-clear', root).addEventListener('click', () => { clearLog(); toast('Registro borrado'); });
   root.querySelectorAll('[data-announce]').forEach((el) => el.addEventListener('click', async () => {
     store.set({ announce: el.dataset.announce === 'on' });
     if (S.book) { reader.stopSpeaking(); await loadChapter(S.ch, 0); }
@@ -877,7 +893,7 @@ async function init() {
   if (!engine.voice) engine.voice = engine.pickDefault('es');
   reader.rate = S.rate;
   window.addEventListener('hashchange', route);
-  document.addEventListener('visibilitychange', () => { if (document.hidden && S.book) db.saveProgress(S.book.id, S.ch, reader.index, { fraction: S.chap.cum[reader.index] / (S.chap.words || 1) }); });
+  document.addEventListener('visibilitychange', () => { log(document.hidden ? 'pantalla apagada u oculta' : 'pantalla encendida'); if (document.hidden && S.book) db.saveProgress(S.book.id, S.ch, reader.index, { fraction: S.chap.cum[reader.index] / (S.chap.words || 1) }); });
   await route();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     const hadController = !!navigator.serviceWorker.controller;

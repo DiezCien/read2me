@@ -5,10 +5,13 @@
 
 import * as db from './db.js';
 import { planSegments, buildSegmentWav, pauseAfter, hashText } from './audio.js';
+import { silentWavUrl } from './tts.js';
+import { log } from './diag.js';
 
-const LOOKAHEAD_SEGMENTS = 30; // ≈ 6 min de audio preparado por delante
+const LOOKAHEAD_SEGMENTS = 90; // ≈ 18 min de audio preparado por delante
+const UPCOMING_SEGMENTS = 4; // primeros trozos del capítulo siguiente, para no esperar al cambiar
 const CACHE_CAP_BYTES = 600 * 1048576;
-const KEEP_RECORDS = 3; // trozos con su blob decodificable en memoria
+const KEEP_RECORDS = 3; // trozos con su URL de audio en memoria
 
 export class NeuralReader {
   constructor(synth, voice, { onSentence, onChapterEnd, onState, onBuffering, onError, prepare }) {
@@ -29,7 +32,11 @@ export class NeuralReader {
       el.addEventListener('ended', () => el === this.el && this.#onEnded());
       // el sistema puede pausar (llamada, otra app): reflejarlo en la interfaz
       el.addEventListener('pause', () => {
-        if (el === this.el && this.playing && !el.ended && !this.switching) { this.playing = false; this.onState?.(false); }
+        if (el === this.el && this.playing && !el.ended && !this.switching && !this.holding) {
+          log('el sistema pausó el audio');
+          this.playing = false;
+          this.onState?.(false);
+        }
       });
     }
     this.recs = new Map(); // seg → { start, end, offsets, duration, url, seg }
@@ -38,11 +45,17 @@ export class NeuralReader {
     this.playGen = 0;
     this.loadGen = 0;
     this.raf = 0;
+    this.upcoming = null;
+    this.upTrack = null;
   }
 
   get el() { return this.els[this.active]; }
 
   /* ---------- carga ---------- */
+
+  #makeCtx(ch, sentences, paraEnd) {
+    return { ch, sentences, paraEnd, segs: planSegments(sentences) };
+  }
 
   load(sentences, index = 0, meta = {}) {
     this.stopSpeaking();
@@ -51,24 +64,31 @@ export class NeuralReader {
     this.index = Math.min(index, Math.max(0, sentences.length - 1));
     this.bookId = meta.bookId;
     this.ch = meta.ch;
-    this.paraEnd = meta.paraEnd || [];
-    this.segs = planSegments(sentences);
+    this.ctx = this.#makeCtx(meta.ch, sentences, meta.paraEnd || []);
+    this.segs = this.ctx.segs;
     this.segOf = new Int32Array(sentences.length);
     this.segs.forEach((s, i) => { for (let k = s.start; k < s.end; k++) this.segOf[k] = i; });
     this.#releaseRecords(true);
     this.durations = new Map();
+    this.upcoming = null;
     this.onSentence?.(this.index);
     this.#loadKnownDurations();
     db.trimAudio(CACHE_CAP_BYTES, (e) => e.bookId === this.bookId && Math.abs(e.ch - this.ch) <= 1).catch(() => {});
   }
 
+  // La app indica cuál es el capítulo siguiente para ir preparando sus primeros trozos.
+  setUpcoming(info) {
+    this.upcoming = info ? this.#makeCtx(info.ch, info.sentences, info.paraEnd || []) : null;
+  }
+
   async #loadKnownDurations() {
     const gen = this.loadGen;
+    const ctx = this.ctx;
     try {
       const list = await db.listAudio(this.bookId);
       if (gen !== this.loadGen) return;
       for (const a of list) {
-        if (a.ch === this.ch && a.voiceId === this.voice.id && this.segs[a.seg] && a.key === this.#key(a.seg)) this.durations.set(a.seg, a.duration);
+        if (a.ch === ctx.ch && a.voiceId === this.voice.id && ctx.segs[a.seg] && a.key === this.#key(ctx, a.seg)) this.durations.set(a.seg, a.duration);
       }
     } catch { /* sin datos: se usan estimaciones */ }
   }
@@ -86,6 +106,7 @@ export class NeuralReader {
 
   async play() {
     if (!this.sentences.length) return;
+    log(`play · frase ${this.index} · ${document.hidden ? 'pantalla apagada' : 'pantalla encendida'}`);
     this.playing = true;
     this.onState?.(true);
     await this.#startAt(this.index);
@@ -95,6 +116,7 @@ export class NeuralReader {
     this.playing = false;
     this.playGen++;
     this.el.pause();
+    this.#releaseMedia();
     this.onBuffering?.(false);
     this.onState?.(false);
     cancelAnimationFrame(this.raf);
@@ -120,7 +142,9 @@ export class NeuralReader {
     this.playing = false;
     this.playGen++;
     for (const el of this.els) el.pause();
+    this.#releaseMedia();
     for (const p of this.pending.values()) p.job?.cancel();
+    this.upTrack?.job?.cancel();
     this.pending.clear();
     cancelAnimationFrame(this.raf);
     this.onBuffering?.(false);
@@ -152,16 +176,22 @@ export class NeuralReader {
     const my = ++this.playGen;
     const seg = this.segOf[i];
     this.#cancelPrefetch();
-    if (!this.recs.has(seg)) this.onBuffering?.(true);
+    if (!this.recs.has(seg)) {
+      log(`esperando audio del trozo ${seg}`);
+      this.onBuffering?.(true);
+      this.#holdMedia();
+    }
     let rec;
     try {
       rec = await this.#ensure(seg, false);
     } catch (err) {
       if (err.cancelled) return;
+      log(`error: ${err.message}`);
       this.pause();
-      this.onError?.(err);
+      this.onError?.(new Error('El motor de voz falló y no se pudo recuperar. Pulsa play para reintentar.'));
       return;
     }
+    if (!rec) rec = await this.#ensure(seg, false); // se unió a una preparación lejana que no creó la URL
     if (my !== this.playGen || !this.playing) return;
     this.onBuffering?.(false);
     this.#attach(rec, i - rec.start);
@@ -173,10 +203,26 @@ export class NeuralReader {
     if (el.src !== rec.url) el.src = rec.url;
     el.currentTime = rec.offsets[k] || 0;
     el.playbackRate = this.rate;
-    el.play().catch((err) => {
+    el.play().then(() => this.#releaseMedia()).catch((err) => {
       if (err.name === 'NotAllowedError') { this.pause(); this.onError?.(new Error('El navegador bloqueó el audio: pulsa play otra vez')); }
     });
     this.#tick();
+  }
+
+  // Mientras se prepara el siguiente trozo suena un audio silencioso en bucle: así Android sigue
+  // viendo una reproducción activa y no congela la página (ni la generación de voz) con la pantalla apagada.
+  #holdMedia() {
+    if (!this.silence) {
+      this.silence = new Audio(silentWavUrl());
+      this.silence.loop = true;
+    }
+    this.holding = true;
+    this.silence.play().catch(() => {});
+  }
+
+  #releaseMedia() {
+    this.holding = false;
+    this.silence?.pause();
   }
 
   #tick() {
@@ -201,6 +247,7 @@ export class NeuralReader {
     const next = cur + 1;
     if (next >= this.segs.length) {
       this.playing = false;
+      this.#releaseMedia();
       this.onState?.(false);
       this.onChapterEnd?.();
       return;
@@ -221,6 +268,7 @@ export class NeuralReader {
       this.#prefetch(my);
       return;
     }
+    log(`fin del trozo ${cur} sin el siguiente listo`);
     this.index = this.segs[next].start;
     this.onSentence?.(this.index);
     await this.#startAt(this.index);
@@ -235,13 +283,45 @@ export class NeuralReader {
 
   /* ---------- síntesis y caché ---------- */
 
-  #spoken(seg) {
-    const { start, end } = this.segs[seg];
-    return this.sentences.slice(start, end).map((t) => this.prepare(t));
+  #spoken(ctx, seg) {
+    const { start, end } = ctx.segs[seg];
+    return ctx.sentences.slice(start, end).map((t) => this.prepare(t));
   }
 
-  #key(seg) {
-    return `${this.bookId}|${this.voice.id}|${this.ch}|${seg}|${hashText(this.#spoken(seg).join('\n'))}`;
+  #key(ctx, seg) {
+    return `${this.bookId}|${this.voice.id}|${ctx.ch}|${seg}|${hashText(this.#spoken(ctx, seg).join('\n'))}`;
+  }
+
+  // Sintetiza con un reintento: si el motor (WebAssembly) falla, se reinicia y se vuelve a probar.
+  async #synthesize(texts, track) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.synth.useVoice(this.voice);
+        track.job = this.synth.synth(this.voice, texts);
+        return await track.job.promise;
+      } catch (err) {
+        if (err.cancelled || attempt >= 1) throw err;
+        log(`fallo del motor (${err.message}); se reinicia`);
+        this.synth.reset();
+      }
+    }
+  }
+
+  // Devuelve el trozo guardado, o lo genera y lo guarda. `track.job` permite cancelarlo.
+  async #record(ctx, seg, track) {
+    const key = this.#key(ctx, seg);
+    const stored = await db.getAudio(key);
+    if (stored) return stored;
+    const { start, end } = ctx.segs[seg];
+    const t0 = performance.now();
+    const { pcms, rate } = await this.#synthesize(this.#spoken(ctx, seg), track);
+    const pauses = ctx.sentences.slice(start, end).map((t, k) => pauseAfter(t, !!ctx.paraEnd[start + k]));
+    const { wav, offsets, duration } = buildSegmentWav(pcms, rate, pauses);
+    const rec = { key, bookId: this.bookId, voiceId: this.voice.id, ch: ctx.ch, seg, bytes: wav.byteLength, duration, offsets, blob: new Blob([wav], { type: 'audio/wav' }) };
+    await db.putAudio(rec);
+    const ms = performance.now() - t0;
+    log(`cap ${ctx.ch} trozo ${seg}: ${duration.toFixed(1)} s de audio en ${(ms / 1000).toFixed(1)} s (${(ms / 1000 / duration).toFixed(2)}×) · ${document.hidden ? 'pantalla apagada' : 'pantalla encendida'}`);
+    return rec;
   }
 
   #ensure(seg, prefetch) {
@@ -250,23 +330,16 @@ export class NeuralReader {
     if (existing) { if (!prefetch) existing.prefetch = false; return existing.promise; }
 
     const gen = this.loadGen;
+    const ctx = this.ctx;
     const entry = { prefetch, job: null };
     entry.promise = (async () => {
-      let stored = await db.getAudio(this.#key(seg));
-      if (!stored) {
-        const { start, end } = this.segs[seg];
-        const texts = this.sentences.slice(start, end);
-        await this.synth.useVoice(this.voice);
-        entry.job = this.synth.synth(this.voice, this.#spoken(seg));
-        const { pcms, rate } = await entry.job.promise;
-        const pauses = texts.map((t, k) => pauseAfter(t, !!this.paraEnd[start + k]));
-        const { wav, offsets, duration } = buildSegmentWav(pcms, rate, pauses);
-        stored = { key: this.#key(seg), bookId: this.bookId, voiceId: this.voice.id, ch: this.ch, seg, bytes: wav.byteLength, duration, offsets, blob: new Blob([wav], { type: 'audio/wav' }) };
-        await db.putAudio(stored);
-      }
+      const stored = await this.#record(ctx, seg, entry);
       if (gen !== this.loadGen) throw Object.assign(new Error('cancelado'), { cancelled: true });
       this.durations.set(seg, stored.duration);
-      const rec = { seg, start: this.segs[seg].start, end: this.segs[seg].end, offsets: stored.offsets, duration: stored.duration, url: URL.createObjectURL(stored.blob) };
+      const cur = this.segOf[this.index];
+      // los trozos lejanos solo se guardan; su URL de audio se crea cuando se acercan
+      if (prefetch && seg > cur + KEEP_RECORDS) return null;
+      const rec = { seg, start: ctx.segs[seg].start, end: ctx.segs[seg].end, offsets: stored.offsets, duration: stored.duration, url: URL.createObjectURL(stored.blob) };
       this.recs.set(seg, rec);
       this.#releaseRecords();
       return rec;
@@ -283,10 +356,22 @@ export class NeuralReader {
       try { await this.#ensure(s, true); } catch { return; }
       if (s === cur + 1) this.#standby(s);
     }
+    await this.#prefetchUpcoming(gen);
+  }
+
+  async #prefetchUpcoming(gen) {
+    const ctx = this.upcoming;
+    if (!ctx) return;
+    for (let s = 0; s < Math.min(UPCOMING_SEGMENTS, ctx.segs.length); s++) {
+      if (!this.playing || gen !== this.playGen) return;
+      this.upTrack = {};
+      try { await this.#record(ctx, s, this.upTrack); } catch { return; }
+    }
   }
 
   #cancelPrefetch() {
     for (const [seg, p] of this.pending) if (p.prefetch) { p.job?.cancel(); this.pending.delete(seg); }
+    this.upTrack?.job?.cancel();
   }
 
   // Conserva solo unos pocos trozos con URL de blob (memoria); el resto sigue en IndexedDB.

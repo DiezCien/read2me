@@ -13,7 +13,8 @@ ort.env.wasm.wasmPaths = {
   mjs: new URL('../vendor/ort/ort-wasm-simd-threaded.js', self.location.href).href,
   wasm: new URL('../vendor/ort/ort-wasm-simd-threaded.wasm', self.location.href).href,
 };
-// Sin cabeceras COOP/COEP no hay SharedArrayBuffer, así que un solo hilo.
+// Un solo hilo. Con varios (requiere cabeceras COOP/COEP) la carga de la voz se quedó colgada en las
+// pruebas, así que no se usa; sería una mejora de velocidad si se investiga con calma.
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
 
@@ -27,7 +28,12 @@ const queue = [];
 const cancelled = new Set();
 let running = false;
 
+let phonemizeCalls = 0;
+
 async function getPhonemizer() {
+  // Se vuelve a crear cada 20 tareas: reutilizar una misma instancia de WebAssembly durante horas
+  // acaba con errores de memoria. Crearla cuesta ~50 ms, frente a varios segundos de síntesis.
+  if (++phonemizeCalls % 20 === 0) phonemizer = null;
   if (!phonemizer) {
     phonemizer = await createPiperPhonemize({
       print: (line) => sink && sink(line),

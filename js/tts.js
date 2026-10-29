@@ -54,7 +54,7 @@ export class SystemVoiceEngine {
   }
 }
 
-function silentWavUrl(seconds = 2) {
+export function silentWavUrl(seconds = 2) {
   const rate = 8000;
   const n = rate * seconds;
   const buf = new ArrayBuffer(44 + n);

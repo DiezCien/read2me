@@ -51,7 +51,12 @@ La voz Sharvard exige atribución (CC BY 3.0). El nombre y el logotipo no están
 
 - En un Mac, Piper (Dave) genera audio a ~0,16× tiempo real con un solo hilo (20 s de audio en 3,3 s).
   **No está medido en un móvil**: ahí depende del procesador. Si va justo, usa la voz ligera.
-- Entre capítulos hay una espera de unos segundos mientras se prepara el primer trozo del siguiente.
+- El motor reintenta una vez (reiniciando el worker) si falla con un error de WebAssembly, y recicla el
+  fonemizador cada 20 tareas. Mientras se prepara un trozo suena un audio silencioso en bucle para que
+  Android no congele la página con la pantalla apagada (por probar en un móvil real).
+- Se prepara por adelantado hasta ~18 min del capítulo y los primeros trozos del siguiente.
+- Ajustes → Diagnóstico copia un registro (tiempos de generación, pantalla apagada/encendida, errores).
+- Probado y descartado: varios hilos de onnxruntime (cabeceras COOP/COEP); la carga de la voz se quedó colgada.
 - Sin probar en un Android real: pantalla bloqueada, notificación, botones Bluetooth y consumo de batería.
 - El service worker (modo sin conexión) no se registra en el navegador de pruebas del entorno de desarrollo.
 - El caché de audio se recorta a 600 MB (lo más antiguo primero, salvo el capítulo actual y el contiguo).
