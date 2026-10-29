@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitSentences, countWords, estimateSeconds, formatClock, formatLong } from '../js/text.js';
+import { splitSentences, countWords, estimateSeconds, formatClock, formatLong, applyPronunciations } from '../js/text.js';
 
 test('parte en frases respetando signos de apertura', () => {
   assert.deepEqual(
@@ -38,4 +38,17 @@ test('formatea tiempos', () => {
   assert.equal(formatLong(51600), '14 h 20 min');
   assert.equal(formatLong(18 * 60), '18 min');
   assert.equal(formatLong(10), '< 1 min');
+});
+
+test('pronunciaciones: sustituye palabras enteras sin distinguir mayúsculas', () => {
+  const dict = [{ from: 'Bryce', to: 'Brais' }];
+  assert.equal(applyPronunciations('Bryce miró a Bryce.', dict), 'Brais miró a Brais.');
+  assert.equal(applyPronunciations('BRYCE y bryce', dict), 'Brais y Brais');
+  assert.equal(applyPronunciations('Brycena no cambia, ni Abryce', dict), 'Brycena no cambia, ni Abryce');
+  assert.equal(applyPronunciations('«Bryce», dijo', dict), '«Brais», dijo');
+});
+
+test('pronunciaciones: caracteres especiales y entradas vacías no rompen nada', () => {
+  assert.equal(applyPronunciations('Mr. X (1+1)', [{ from: 'Mr.', to: 'Mister' }, { from: '(1+1)', to: 'dos' }, { from: '', to: 'x' }]), 'Mister X dos');
+  assert.equal(applyPronunciations('Hola', undefined), 'Hola');
 });

@@ -70,8 +70,9 @@ function silentWavUrl(seconds = 2) {
 
 export class Reader {
   // sentences: string[] del capítulo actual. Callbacks: onSentence(i), onChapterEnd()
-  constructor(engine, { onSentence, onChapterEnd, onState }) {
+  constructor(engine, { onSentence, onChapterEnd, onState, prepare }) {
     this.engine = engine;
+    this.prepare = prepare; // transforma el texto antes de decirlo (pronunciaciones)
     this.onSentence = onSentence;
     this.onChapterEnd = onChapterEnd;
     this.onState = onState;
@@ -134,7 +135,7 @@ export class Reader {
   async #speakCurrent() {
     const i = this.index;
     this.onSentence?.(i);
-    const finished = await this.engine.speak(this.sentences[i], this.rate);
+    const finished = await this.engine.speak(this.prepare ? this.prepare(this.sentences[i]) : this.sentences[i], this.rate);
     if (!finished || !this.playing || this.index !== i) return;
     if (i + 1 >= this.sentences.length) {
       this.playing = false;

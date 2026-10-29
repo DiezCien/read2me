@@ -11,8 +11,9 @@ const CACHE_CAP_BYTES = 600 * 1048576;
 const KEEP_RECORDS = 3; // trozos con su blob decodificable en memoria
 
 export class NeuralReader {
-  constructor(synth, voice, { onSentence, onChapterEnd, onState, onBuffering, onError }) {
+  constructor(synth, voice, { onSentence, onChapterEnd, onState, onBuffering, onError, prepare }) {
     Object.assign(this, { synth, voice, onSentence, onChapterEnd, onState, onBuffering, onError });
+    this.prepare = prepare || ((t) => t); // pronunciaciones: lo que se dice puede diferir de lo que se muestra
     this.sentences = [];
     this.index = 0;
     this.rate = 1;
@@ -234,9 +235,13 @@ export class NeuralReader {
 
   /* ---------- síntesis y caché ---------- */
 
-  #key(seg) {
+  #spoken(seg) {
     const { start, end } = this.segs[seg];
-    return `${this.bookId}|${this.voice.id}|${this.ch}|${seg}|${hashText(this.sentences.slice(start, end).join('\n'))}`;
+    return this.sentences.slice(start, end).map((t) => this.prepare(t));
+  }
+
+  #key(seg) {
+    return `${this.bookId}|${this.voice.id}|${this.ch}|${seg}|${hashText(this.#spoken(seg).join('\n'))}`;
   }
 
   #ensure(seg, prefetch) {
@@ -252,7 +257,7 @@ export class NeuralReader {
         const { start, end } = this.segs[seg];
         const texts = this.sentences.slice(start, end);
         await this.synth.useVoice(this.voice);
-        entry.job = this.synth.synth(this.voice, texts);
+        entry.job = this.synth.synth(this.voice, this.#spoken(seg));
         const { pcms, rate } = await entry.job.promise;
         const pauses = texts.map((t, k) => pauseAfter(t, !!this.paraEnd[start + k]));
         const { wav, offsets, duration } = buildSegmentWav(pcms, rate, pauses);

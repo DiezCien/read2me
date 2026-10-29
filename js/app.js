@@ -1,6 +1,6 @@
 import { readEpub } from './epub.js';
 import * as db from './db.js';
-import { splitSentences, countWords, estimateSeconds, formatClock, formatLong } from './text.js';
+import { splitSentences, countWords, estimateSeconds, formatClock, formatLong, applyPronunciations } from './text.js';
 import { SystemVoiceEngine, Reader, setupMediaSession } from './tts.js';
 import { NeuralReader } from './neural-reader.js';
 import { PiperSynth } from './neural-synth.js';
@@ -79,6 +79,7 @@ const callbacks = {
   onState: (p) => { S.playing = p; media.setPlaying(p); renderPlayState(); },
   onBuffering: (b) => { S.buffering = b; renderBuffering(); },
   onError: (err) => toast(err.message),
+  prepare: (text) => applyPronunciations(text, store.get().pron),
 };
 
 function makeReader() {
@@ -698,6 +699,18 @@ async function renderSettings() {
       </div>
       ${voiceGroup}
       <div class="group">
+        <h2 class="eyebrow">Pronunciaciones</h2>
+        <p class="note">Si un nombre se lee mal, escríbelo como suena. Solo cambia lo que oyes, no el texto.</p>
+        <div class="pron-list">
+          ${(store.get().pron || []).map((p, i) => `<div class="pron-row"><span><b>${esc(p.from)}</b> → ${esc(p.to)}</span><button class="icon-btn" data-pron-del="${i}" aria-label="Borrar ${esc(p.from)}">${icon('trash', 18)}</button></div>`).join('')}
+        </div>
+        <form class="pron-form" id="pron-form" autocomplete="off">
+          <label>Palabra<input id="pron-from" type="text" placeholder="Bryce" required></label>
+          <label>Se lee como<input id="pron-to" type="text" placeholder="Brais" required></label>
+          <button class="btn" type="submit">Añadir</button>
+        </form>
+      </div>
+      <div class="group">
         <h2 class="eyebrow">Tus datos</h2>
         <div class="panel">
           <span style="display:flex;gap:10px;align-items:flex-start">${icon('phone', 20, 'style="flex:none;color:var(--accent)"')}Todo se guarda solo en este teléfono. No hay cuenta ni servidor.</span>
@@ -730,6 +743,21 @@ async function renderSettings() {
     $('#rate-v', root).textContent = fmtRate(r);
     setRate(r);
   });
+  $('#pron-form', root).addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = $('#pron-from', root).value.trim();
+    const to = $('#pron-to', root).value.trim();
+    if (!from || !to || from === to) return;
+    const rest = (store.get().pron || []).filter((p) => p.from.toLowerCase() !== from.toLowerCase());
+    store.set({ pron: [...rest, { from, to }] });
+    applyEngine(); // descarta el audio ya cargado para que suene con la nueva pronunciación
+    renderSettings();
+  });
+  root.querySelectorAll('[data-pron-del]').forEach((el) => el.addEventListener('click', () => {
+    store.set({ pron: (store.get().pron || []).filter((_, i) => i !== Number(el.dataset.pronDel)) });
+    applyEngine();
+    renderSettings();
+  }));
   root.querySelectorAll('[data-announce]').forEach((el) => el.addEventListener('click', async () => {
     store.set({ announce: el.dataset.announce === 'on' });
     if (S.book) { reader.stopSpeaking(); await loadChapter(S.ch, 0); }
@@ -802,6 +830,7 @@ async function tryNeuralVoice() {
 
 async function downloadBackup() {
   const data = await db.exportBackup();
+  data.pronunciations = store.get().pron || [];
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `read2me-copia-${new Date().toISOString().slice(0, 10)}.json` });
   a.click();
@@ -813,7 +842,12 @@ async function restoreBackup(e) {
   e.target.value = '';
   if (!file) return;
   try {
-    const n = await db.importBackup(JSON.parse(await file.text()));
+    const data = JSON.parse(await file.text());
+    const n = await db.importBackup(data);
+    if (Array.isArray(data.pronunciations)) {
+      const have = store.get().pron || [];
+      store.set({ pron: [...have, ...data.pronunciations.filter((p) => p?.from && p?.to && !have.some((h) => h.from.toLowerCase() === p.from.toLowerCase()))] });
+    }
     toast(n ? `Progreso restaurado en ${n} libro${n === 1 ? '' : 's'}` : 'Copia leída, pero no hay libros que coincidan: añádelos primero');
   } catch (err) {
     toast(err.message);

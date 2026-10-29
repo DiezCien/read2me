@@ -59,3 +59,15 @@ export function formatLong(seconds) {
   const h = Math.floor(min / 60);
   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
 }
+
+// Diccionario de pronunciaciones: sustituye palabras enteras (sin distinguir mayúsculas) por cómo
+// deben sonar, p. ej. { from: 'Bryce', to: 'Brais' }. Solo afecta a lo que se oye, no al texto mostrado.
+export function applyPronunciations(text, entries) {
+  let out = String(text);
+  for (const { from, to } of entries || []) {
+    if (!from || to == null) continue;
+    const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'giu'), to);
+  }
+  return out;
+}
